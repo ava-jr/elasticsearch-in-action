@@ -41,13 +41,13 @@
     }
   },
   "mappings" : {
-    "doc" : {
+    "_doc" : {
       "_source" : {
         "enabled" : true
       },
       "properties" : {
         "type": { "type": "keyword" },
-        "my_join_field": { 
+        "join_field": { 
           "type": "join",
           "relations": {
             "group": "event" 

@@ -1,18 +1,29 @@
 #!/usr/bin/env bash
 
-ADDRESS=$1
-
-if [ -z $ADDRESS ]; then
-  ADDRESS="localhost:9200"
+# Option '-u username:password' (space is required)
+if [ "$1" == "-u" ]; then
+  AUTH="$1 $2"
+  shift
+  shift
 fi
 
+CURL="curl -s $AUTH"
+ADDRESS=${1:-"localhost:9200"}
+
 # Check that Elasticsearch is running
-curl -s "http://$ADDRESS" 2>&1 > /dev/null
+STATUS=$($CURL "http://$ADDRESS" 2>&1)
 if [ $? != 0 ]; then
     echo "Unable to contact Elasticsearch at $ADDRESS"
     echo "Please ensure Elasticsearch is running and can be reached at http://$ADDRESS/"
     exit -1
 fi
+# Check authentication
+if [ -n "$(echo $STATUS | grep security_exception)" ]; then
+    echo "Unable to authenticate with Elasticsearch at $ADDRESS"
+    echo "Please specify -u username:password"
+    exit 1
+fi
+
 
 echo "WARNING, this script will delete the 'get-together' and the 'myindex' indices and re-index all data!"
 echo "Press Control-C to cancel this operation."
@@ -21,16 +32,15 @@ echo "Press [Enter] to continue."
 read
 
 # Delete the old index, swallow failures if it doesn't exist
-curl -s -XDELETE "$ADDRESS/get-together" > /dev/null
-#curl -s -XDELETE "$ADDRESS/get-together-group" > /dev/null
-#curl -s -XDELETE "$ADDRESS/get-together-event" > /dev/null
+$CURL -XDELETE "$ADDRESS/get-together" > /dev/null
 
 # Create the next index using mapping.json
 echo "Creating 'get-together' index..."
-curl -s -XPUT "$ADDRESS/get-together" -H'Content-Type: application/json' -d@$(dirname $0)/mapping6x.json
+$CURL -XPUT "$ADDRESS/get-together" -H'Content-Type: application/json' -d@$(dirname $0)/mapping.json
 
 # Wait for index to become yellow
-curl -s "$ADDRESS/get-together/_health?wait_for_status=yellow&timeout=10s" > /dev/null
+$CURL "$ADDRESS/_cluster/health/get-together?wait_for_status=yellow&timeout=10s" > /dev/null
+
 echo
 echo "Done creating 'get-together' index."
 
@@ -38,11 +48,9 @@ echo
 echo "Indexing data..."
 
 echo "Indexing groups..."
-curl -s -XPOST "$ADDRESS/get-together/doc/1" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/1" -H'Content-Type: application/json' -d'{
   "type": "group",
-  "my_join_field": {
-    "name": "group" 
-  },
+  "join_field": "group",
   "name": "Denver Clojure",
   "organizer": ["Daniel", "Lee"],
   "description": "Group of Clojure enthusiasts from Denver who want to hack on code together and learn more about Clojure",
@@ -53,11 +61,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/1" -H'Content-Type: application/json' 
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/2" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/2" -H'Content-Type: application/json' -d'{
   "type": "group",
-  "my_join_field": {
-    "name": "group" 
-  },
+  "join_field": "group",
   "name": "Elasticsearch Denver",
   "organizer": "Lee",
   "description": "Get together to learn more about using Elasticsearch, the applications and neat things you can do with ES!",
@@ -68,11 +74,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/2" -H'Content-Type: application/json' 
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/3" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/3" -H'Content-Type: application/json' -d'{
   "type": "group",
-  "my_join_field": {
-    "name": "group" 
-  },
+  "join_field": "group",
   "name": "Elasticsearch San Francisco",
   "organizer": "Mik",
   "description": "Elasticsearch group for ES users of all knowledge levels",
@@ -83,11 +87,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/3" -H'Content-Type: application/json' 
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/4" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/4" -H'Content-Type: application/json' -d'{
   "type": "group",
-  "my_join_field": {
-    "name": "group" 
-  },
+  "join_field": "group",
   "name": "Boulder/Denver big data get-together",
   "organizer": "Andy",
   "description": "Come learn and share your experience with nosql & big data technologies, no experience required",
@@ -98,11 +100,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/4" -H'Content-Type: application/json' 
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/5" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/5" -H'Content-Type: application/json' -d'{
   "type": "group",
-  "my_join_field": {
-    "name": "group" 
-  },
+  "join_field": "group",
   "name": "Enterprise search London get-together",
   "organizer": "Tyler",
   "description": "Enterprise search get-togethers are an opportunity to get together with other people doing search.",
@@ -115,11 +115,12 @@ curl -s -XPOST "$ADDRESS/get-together/doc/5" -H'Content-Type: application/json' 
 echo
 echo "Done indexing groups."
 
+
 echo "Indexing events..."
 
-curl -s -XPOST "$ADDRESS/get-together/doc/100" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/100?routing=1" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "1" 
   },
@@ -135,9 +136,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/100" -H'Content-Type: application/json
   "reviews": 4
 }'
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/101" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/101?routing=1" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "1" 
   },
@@ -153,9 +154,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/101" -H'Content-Type: application/json
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/102" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/102?routing=1" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "1" 
   },
@@ -172,9 +173,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/102" -H'Content-Type: application/json
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/103" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/103?routing=2" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "2" 
   },
@@ -191,9 +192,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/103" -H'Content-Type: application/json
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/104" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/104?routing=2" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "2" 
   },
@@ -210,9 +211,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/104" -H'Content-Type: application/json
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/105" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/105?routing=2" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "2" 
   },
@@ -229,9 +230,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/105" -H'Content-Type: application/json
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/106" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/106?routing=3" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "3" 
   },
@@ -248,9 +249,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/106" -H'Content-Type: application/json
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/107" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/107?routing=3" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "3" 
   },
@@ -267,9 +268,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/107" -H'Content-Type: application/json
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/108" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/108?routing=3" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "3" 
   },
@@ -286,9 +287,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/108" -H'Content-Type: application/json
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/109" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/109?routing=4" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "4" 
   },
@@ -305,9 +306,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/109" -H'Content-Type: application/json
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/110" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/110?routing=4" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "4" 
   },
@@ -324,9 +325,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/110" -H'Content-Type: application/json
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/111" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/111?routing=4" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "4" 
   },
@@ -343,9 +344,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/111" -H'Content-Type: application/json
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/112" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/112?routing=5" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "5" 
   },
@@ -362,9 +363,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/112" -H'Content-Type: application/json
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/113" -H'Content-Type: application/json' -d'
+$CURL -XPOST "$ADDRESS/get-together/_doc/113?routing=5" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "5" 
   },
@@ -381,9 +382,9 @@ curl -s -XPOST "$ADDRESS/get-together/doc/113" -H'Content-Type: application/json
 }'
 
 echo
-curl -s -XPOST "$ADDRESS/get-together/doc/114" -H'Content-Type: application/json' -d'{
+$CURL -XPOST "$ADDRESS/get-together/_doc/114?routing=5" -H'Content-Type: application/json' -d'{
   "type": "event",
-  "my_join_field": {
+  "join_field": {
     "name": "group",
     "parent": "5" 
   },
@@ -401,9 +402,8 @@ curl -s -XPOST "$ADDRESS/get-together/doc/114" -H'Content-Type: application/json
 
 echo
 echo "Done indexing events."
-COMMENT
 # Refresh so data is available
-curl -s -XPOST "$ADDRESS/get-together/_refresh"
+$CURL -XPOST "$ADDRESS/get-together/_refresh"
 
 echo
 echo "Done indexing data."
@@ -411,7 +411,7 @@ echo
 
 echo
 echo "Creating Templates."
-curl -s -XPUT "http://$ADDRESS/_template/logging_index_all" -H'Content-Type: application/json' -d'{
+$CURL -XPUT "http://$ADDRESS/_template/logging_index_all" -H'Content-Type: application/json' -d'{
     "template" : "logstash-09-*",
     "order" : 1,
     "settings" : {
@@ -422,7 +422,7 @@ curl -s -XPUT "http://$ADDRESS/_template/logging_index_all" -H'Content-Type: app
 }'
 
 echo
-curl -s -XPUT "http://$ADDRESS/_template/logging_index" -H'Content-Type: application/json' -d '{
+$CURL -XPUT "http://$ADDRESS/_template/logging_index" -H'Content-Type: application/json' -d '{
     "template" : "logstash-*",
     "order" : 0,
     "settings" : {
@@ -436,8 +436,8 @@ echo "Done Creating Templates."
 
 echo
 echo "Adding Dynamic Mapping"
-curl -s -XDELETE "http://$ADDRESS/myindex" > /dev/null
-curl -s -XPUT "http://$ADDRESS/myindex" -H'Content-Type: application/json' -d'
+$CURL -XDELETE "http://$ADDRESS/myindex" > /dev/null
+$CURL -XPUT "http://$ADDRESS/myindex" -H'Content-Type: application/json' -d'
 {
     "mappings" : {
         "my_type" : {
@@ -459,11 +459,11 @@ echo "Done Adding Dynamic Mapping"
 
 echo
 echo "Adding Aliases"
-curl -s -XDELETE "http://$ADDRESS/november_2014_invoices" > /dev/null
-curl -s -XDELETE "http://$ADDRESS/december_2014_invoices" > /dev/null
-curl -s -XPUT "http://$ADDRESS/november_2014_invoices" -H'Content-Type: application/json' -d'{}'
+$CURL -XDELETE "http://$ADDRESS/november_2014_invoices" > /dev/null
+$CURL -XDELETE "http://$ADDRESS/december_2014_invoices" > /dev/null
+$CURL -XPUT "http://$ADDRESS/november_2014_invoices" -H'Content-Type: application/json' -d'{}'
 echo
-curl -s -XPUT "http://$ADDRESS/december_2014_invoices" -H'Content-Type: application/json' -d'
+$CURL -XPUT "http://$ADDRESS/december_2014_invoices" -H'Content-Type: application/json' -d'
 {
     "mappings" :
     {
@@ -479,7 +479,7 @@ curl -s -XPUT "http://$ADDRESS/december_2014_invoices" -H'Content-Type: applicat
 
 echo
 
-curl -s -XPOST "http://$ADDRESS/_aliases" -H'Content-Type: application/json' -d'
+$CURL -XPOST "http://$ADDRESS/_aliases" -H'Content-Type: application/json' -d'
 {
   "actions" : [
     {"add" : {"index" : "november_2014_invoices", "alias" : "2014_invoices"}},
@@ -491,7 +491,7 @@ echo
 echo "Done Adding Aliases"
 
 echo "Adding Filter Alias"
-curl -s -XPOST "http://$ADDRESS/_aliases" -H'Content-Type: application/json' -d '
+$CURL -XPOST "http://$ADDRESS/_aliases" -H'Content-Type: application/json' -d '
 {
     "actions" : [
         {
@@ -518,7 +518,7 @@ echo "Done Adding Filter Alias"
 
 echo
 echo "Adding Routing Alias"
-curl -s -XPOST "http://$ADDRESS/_aliases" -H'Content-Type: application/json' -d '
+$CURL -XPOST "http://$ADDRESS/_aliases" -H'Content-Type: application/json' -d '
 {
     "actions" : [
         {
